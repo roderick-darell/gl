@@ -14,7 +14,7 @@
   - fusion de classes
   - supprimer des dcycles dans la dependeance entre les paquets
   - suppression des paxkages ne contenat pas de classes 
-  - 
+  -   cc
 
 
                                                                                                                                                                                                                                                                                            
