@@ -2,7 +2,9 @@
 
 **modification**
   - renommer des constantes liée à la problematique denommage 
-  -  creation de variable pour supprimer des nombres magiques
+          -- renommage de contante useragent dans 
+  -  creation de variable pour supprimer des nombres magiques common/src/main/java/org/red5/server/util/HttpConnectionUtil.java
+
   - suppresiion des if inutiles 
   - reduire la complexite cyclomatique de playengine
   - reduire la complexite cognitive de de play engine 
