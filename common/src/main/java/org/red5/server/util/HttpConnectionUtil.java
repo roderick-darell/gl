@@ -33,7 +33,7 @@ public class HttpConnectionUtil {
 
     private static Logger log = LoggerFactory.getLogger(HttpConnectionUtil.class);
 
-    private static final String userAgent = "Mozilla/4.0 (compatible; Red5 Server)";
+    private static final String USER_AGENT = "Mozilla/4.0 (compatible; Red5 Server)";
 
     private static PoolingHttpClientConnectionManager connectionManager;
 
@@ -75,7 +75,7 @@ public class HttpConnectionUtil {
         // no redirects
         client.disableRedirectHandling();
         // set custom ua
-        client.setUserAgent(userAgent);
+        client.setUserAgent(USER_AGENT);
         // set the proxy if the user has one set
         if ((System.getProperty("http.proxyHost") != null) && (System.getProperty("http.proxyPort") != null)) {
             HttpHost proxy = new HttpHost(System.getProperty("http.proxyHost").toString(), Integer.valueOf(System.getProperty("http.proxyPort")));
@@ -103,7 +103,7 @@ public class HttpConnectionUtil {
         // no redirects
         client.disableRedirectHandling();
         // set custom ua
-        client.setUserAgent(userAgent);
+        client.setUserAgent(USER_AGENT);
         return client.build();
     }
 
