@@ -7,6 +7,8 @@
          -- IoBuffer buf = IoBuffer.allocate(102);  DANS LA METGHODE endOnPlayStatus DE PLAYENGINED ON AVAIT LA TAILLE INITUIALE DU BUFFER QUI N'ETAIT PAS STOCKER DANS UNE VARIABLE 
 
   - suppresiion des if inutiles 
+  - SUPPRESSION DE CODES MOR 
+  - REPLACEMENT DES SIZE== 0 PAR ISEMPTY
   - reduire la complexite cyclomatique de playengine
   - reduire la complexite cognitive de de play engine 
   - reduire le nombre de ligne duppliquees    common/src/mmain/java/org/red5/server/adapter/application.java   common/src/mmain/java/org/red5/server/stream/consummer/selectfileconsuer
