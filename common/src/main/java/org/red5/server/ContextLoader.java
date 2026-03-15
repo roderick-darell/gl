@@ -121,7 +121,7 @@ public class ContextLoader implements ApplicationContextAware, InitializingBean,
             for (Object key : props.keySet()) {
                 String name = (String) key;
                 String config = props.getProperty(name);
-                String configReplaced = config + "";
+                String configReplaced = config;
                 //
                 matcher = patt.matcher(config);
                 //execute the regex
