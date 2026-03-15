@@ -84,6 +84,7 @@ import org.slf4j.LoggerFactory;
 public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnectionListener {
 
     private static final Logger log = LoggerFactory.getLogger(PlayEngine.class);
+    public static final int INITIAL_BUFFER_SIZE = 102;
 
     private static boolean isDebug = log.isDebugEnabled();
 
@@ -1308,7 +1309,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             log.debug("Sending onPlayStatus - code: {} duration: {} bytes: {}", code, duration, bytes);
         }
         // create the buffer
-        IoBuffer buf = IoBuffer.allocate(102);
+        IoBuffer buf = IoBuffer.allocate(INITIAL_BUFFER_SIZE);
         buf.setAutoExpand(true);
         Output out = new Output(buf);
         out.writeString("onPlayStatus");

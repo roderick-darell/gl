@@ -3,7 +3,8 @@
 **modification**
   - renommer des constantes liée à la problematique denommage 
           -- renommage de contante useragent dans 
-  -  creation de variable pour supprimer des nombres magiques common/src/main/java/org/red5/server/util/HttpConnectionUtil.java
+  -  creation de variable pour supprimer des nombres magiques 
+         -- IoBuffer buf = IoBuffer.allocate(102);  DANS LA METGHODE endOnPlayStatus DE PLAYENGINED ON AVAIT LA TAILLE INITUIALE DU BUFFER QUI N'ETAIT PAS STOCKER DANS UNE VARIABLE 
 
   - suppresiion des if inutiles 
   - reduire la complexite cyclomatique de playengine
