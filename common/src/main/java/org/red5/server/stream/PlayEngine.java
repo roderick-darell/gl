@@ -935,11 +935,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 nextCheckBufferUnderrun = now + bufferCheckInterval;
             }
             // check for under run
-            if (pending > underrunTrigger) {
-                // too many messages already queued on the connection
-                return false;
-            }
-            return true;
+            // too many messages already queued on the connection
+            return pending <= underrunTrigger;
         } else {
             String itemName = "Undefined";
             // if current item exists get the name to help debug this issue
