@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -229,7 +230,12 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     /**
      * Decision: 0 for Live, 1 for File, 2 for Wait, 3 for N/A
      */
-    private int playDecision = 3;
+    private int playDecision = PLAY_DECISION_NOT_FOUND;
+
+    private static final int PLAY_DECISION_LIVE = 0;
+    private static final int PLAY_DECISION_VOD = 1;
+    private static final int PLAY_DECISION_WAIT = 2;
+    private static final int PLAY_DECISION_NOT_FOUND = 3;
 
     /**
      * Index of the buffered interframe to send instead of current frame
@@ -368,194 +374,335 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
      * @throws java.io.IOException
      *             Stream had IO exception
      */
-    public void play(IPlayItem item, boolean withReset) throws StreamNotFoundException, IllegalStateException, IOException {
-        IMessageInput in = null;
-        // cannot play if state is not stopped
-        switch (subscriberStream.getState()) {
-            case STOPPED:
-                in = msgInReference.get();
-                if (in != null) {
-                    in.unsubscribe(this);
-                    msgInReference.set(null);
-                }
-                break;
-            default:
-                throw new IllegalStateException("Cannot play from non-stopped state");
+    private enum PlayDecision {
+        LIVE(PLAY_DECISION_LIVE),
+        VOD(PLAY_DECISION_VOD),
+        WAIT(PLAY_DECISION_WAIT),
+        NOT_FOUND(PLAY_DECISION_NOT_FOUND);
+
+        private final int code;
+
+        PlayDecision(int code) {
+            this.code = code;
         }
-        // Play type determination
-        // https://help.adobe.com/en_US/FlashPlatform/reference/actionscript/3/flash/net/NetStream.html#play()
-        // The start time, in seconds. Allowed values are -2, -1, 0, or a positive number.
-        // The default value is -2, which looks for a live stream, then a recorded stream,
-        // and if it finds neither, opens a live stream.
-        // If -1, plays only a live stream.
-        // If 0 or a positive number, plays a recorded stream, beginning start seconds in.
-        //
-        // -2: live then recorded, -1: live, >=0: recorded
-        int type = (int) (item.getStart() / 1000);
-        log.debug("Type {}", type);
-        // see if it's a published stream
-        IScope thisScope = subscriberStream.getScope();
-        final String itemName = item.getName();
-        //check for input and type
-        IProviderService.INPUT_TYPE sourceType = providerService.lookupProviderInput(thisScope, itemName, type);
-        boolean sendNotifications = true;
-        // decision: 0 for Live, 1 for File, 2 for Wait, 3 for N/A
-        switch (type) {
-            case -2:
-                if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-                    playDecision = 0;
-                } else if (sourceType == IProviderService.INPUT_TYPE.VOD) {
-                    playDecision = 1;
-                } else if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
-                    playDecision = 2;
-                }
-                break;
-            case -1:
-                if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-                    playDecision = 0;
-                } else if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
-                    playDecision = 2;
-                }
-                break;
-            case 0://Gstreamer rtmp2src compatibility.
-                if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-                    playDecision = 0;
-                } else if (sourceType == IProviderService.INPUT_TYPE.VOD) {
-                    playDecision = 1;
-                }
-                break;
-            default:
-                if (sourceType == IProviderService.INPUT_TYPE.VOD) {
-                    playDecision = 1;
-                }
-                break;
+
+        int code() {
+            return code;
         }
-        IMessage msg = null;
+    }
+
+    private record PlaybackResult(IMessage message, boolean sendNotifications) {
+    }
+
+    public void play(IPlayItem item, boolean withReset)
+            throws StreamNotFoundException, IllegalStateException, IOException {
+
+        ensureStreamStopped();
+        cleanupPreviousInput();
+
         currentItem.set(item);
+
+        int type = toPlayType(item);
         long itemLength = item.getLength();
+        String itemName = item.getName();
+        IScope scope = subscriberStream.getScope();
+
+        IProviderService.INPUT_TYPE sourceType = providerService.lookupProviderInput(scope, itemName, type);
+        PlayDecision decision = determinePlayDecision(type, sourceType);
+        playDecision = decision.code();
+
         if (isDebug) {
             log.debug("Play decision is {} (0=Live, 1=File, 2=Wait, 3=N/A) item length: {}", playDecision, itemLength);
         }
-        switch (playDecision) {
-            case 0:
-                // get source input without create
-                in = providerService.getLiveProviderInput(thisScope, itemName, false);
-                if (msgInReference.compareAndSet(null, in)) {
-                    // drop all frames up to the next keyframe
-                    videoFrameDropper.reset(IFrameDropper.SEND_KEYFRAMES_CHECK);
-                    waitingForKeyframe = true;
-                    log.debug("playItem: set waitingForKeyframe=true, SEND_KEYFRAMES_CHECK mode");
-                    if (in instanceof IBroadcastScope) {
-                        IBroadcastStream stream = (IBroadcastStream) ((IBroadcastScope) in).getClientBroadcastStream();
-                        log.debug("playItem: stream={}, codecInfo={}", stream, stream != null ? stream.getCodecInfo() : "N/A");
-                        if (stream != null && stream.getCodecInfo() != null) {
-                            IVideoStreamCodec videoCodec = stream.getCodecInfo().getVideoCodec();
-                            log.debug("playItem: videoCodec={}, hasKeyframe={}, numInterframes={}", videoCodec, videoCodec != null ? videoCodec.getKeyframe() != null : "N/A", videoCodec != null ? videoCodec.getNumInterframes() : "N/A");
-                            if (videoCodec != null) {
-                                if (withReset) {
-                                    sendReset();
-                                    sendResetStatus(item);
-                                    sendStartStatus(item);
-                                }
-                                sendNotifications = false;
-                                if (videoCodec.getNumInterframes() > 0 || videoCodec.getKeyframe() != null) {
-                                    log.debug("playItem: Keyframe available, switching to SEND_ALL mode");
-                                    bufferedInterframeIdx = 0;
-                                    videoFrameDropper.reset(IFrameDropper.SEND_ALL);
-                                    waitingForKeyframe = false;
-                                }
-                            }
-                        }
-                    }
-                    // subscribe to stream (ClientBroadcastStream.onPipeConnectionEvent)
-                    in.subscribe(this, null);
-                    // execute the processes to get Live playback setup
-                    playLive();
-                } else {
-                    sendStreamNotFoundStatus(item);
-                    throw new StreamNotFoundException(itemName);
-                }
-                break;
-            case 2:
-                // get source input with create
-                in = providerService.getLiveProviderInput(thisScope, itemName, true);
-                if (msgInReference.compareAndSet(null, in)) {
-                    if (type == -1 && itemLength >= 0) {
-                        if (isDebug) {
-                            log.debug("Creating wait job for {}", itemLength);
-                        }
-                        // Wait given timeout for stream to be published
-                        waitLiveJob = schedulingService.addScheduledOnceJob(itemLength, new IScheduledJob() {
-                            public void execute(ISchedulingService service) {
-                                connectToProvider(itemName);
-                                waitLiveJob = null;
-                                subscriberStream.onChange(StreamState.END);
-                            }
-                        });
-                    } else if (type == -2) {
-                        if (isDebug) {
-                            log.debug("Creating wait job");
-                        }
-                        // Wait x seconds for the stream to be published
-                        waitLiveJob = schedulingService.addScheduledOnceJob(15000, new IScheduledJob() {
-                            public void execute(ISchedulingService service) {
-                                connectToProvider(itemName);
-                                waitLiveJob = null;
-                            }
-                        });
-                    } else {
-                        connectToProvider(itemName);
-                    }
-                } else if (isDebug) {
-                    log.debug("Message input already set for {}", itemName);
-                }
-                break;
-            case 1:
-                in = providerService.getVODProviderInput(thisScope, itemName);
-                if (msgInReference.compareAndSet(null, in)) {
-                    if (in.subscribe(this, null)) {
-                        // execute the processes to get VOD playback setup
-                        msg = playVOD(withReset, itemLength);
-                    } else {
-                        log.warn("Input source subscribe failed");
-                        throw new IOException(String.format("Subscribe to %s failed", itemName));
-                    }
-                } else {
-                    sendStreamNotFoundStatus(item);
-                    throw new StreamNotFoundException(itemName);
-                }
-                break;
-            default:
-                sendStreamNotFoundStatus(item);
-                throw new StreamNotFoundException(itemName);
+
+        PlaybackResult result = executePlayback(scope, item, itemName, type, itemLength, withReset, decision);
+
+        sendPostPlayNotifications(item, withReset, result.sendNotifications());
+
+        if (result.message() != null) {
+            sendMessage((RTMPMessage) result.message());
         }
-        // continue with common play processes (live and vod)
-        if (sendNotifications) {
-            if (withReset) {
-                sendReset();
-                sendResetStatus(item);
-            }
-            sendStartStatus(item);
-            if (!withReset) {
-                sendSwitchStatus();
-            }
-            // if its dynamic playback send the complete status
-            if (item instanceof DynamicPlayItem) {
-                sendTransitionStatus();
-            }
+
+        finalizePlayback(item, withReset);
+    }
+
+    private void ensureStreamStopped() {
+        if (Objects.requireNonNull(subscriberStream.getState()) != StreamState.STOPPED) {
+            throw new IllegalStateException("Cannot play from non-stopped state");
         }
-        if (msg != null) {
-            sendMessage((RTMPMessage) msg);
+    }
+
+    private void cleanupPreviousInput() {
+        IMessageInput currentInput = msgInReference.get();
+        if (currentInput != null) {
+            currentInput.unsubscribe(this);
+            msgInReference.set(null);
         }
-        subscriberStream.onChange(StreamState.PLAYING, item, !pullMode);
+    }
+
+    private int toPlayType(IPlayItem item) {
+        int type = (int) (item.getStart() / 1000);
+        log.debug("Type {}", type);
+        return type;
+    }
+
+    private PlayDecision determinePlayDecision(int type, IProviderService.INPUT_TYPE sourceType) {
+        return switch (type) {
+            case -2 -> determinePlayDecisionForLiveOrRecorded(sourceType);
+            case -1 -> determinePlayDecisionForLiveOnly(sourceType);
+            case 0 -> determinePlayDecisionForZeroStart(sourceType);
+            default -> determinePlayDecisionForRecordedOnly(sourceType);
+        };
+    }
+
+    private PlayDecision determinePlayDecisionForLiveOrRecorded(IProviderService.INPUT_TYPE sourceType) {
+        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
+            return PlayDecision.LIVE;
+        }
+        if (sourceType == IProviderService.INPUT_TYPE.VOD) {
+            return PlayDecision.VOD;
+        }
+        if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
+            return PlayDecision.WAIT;
+        }
+        return PlayDecision.NOT_FOUND;
+    }
+
+    private PlayDecision determinePlayDecisionForLiveOnly(IProviderService.INPUT_TYPE sourceType) {
+        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
+            return PlayDecision.LIVE;
+        }
+        if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
+            return PlayDecision.WAIT;
+        }
+        return PlayDecision.NOT_FOUND;
+    }
+
+    private PlayDecision determinePlayDecisionForZeroStart(IProviderService.INPUT_TYPE sourceType) {
+        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
+            return PlayDecision.LIVE;
+        }
+        if (sourceType == IProviderService.INPUT_TYPE.VOD) {
+            return PlayDecision.VOD;
+        }
+        return PlayDecision.NOT_FOUND;
+    }
+
+    private PlayDecision determinePlayDecisionForRecordedOnly(IProviderService.INPUT_TYPE sourceType) {
+        return sourceType == IProviderService.INPUT_TYPE.VOD ? PlayDecision.VOD : PlayDecision.NOT_FOUND;
+    }
+
+    private PlaybackResult executePlayback(
+            IScope scope,
+            IPlayItem item,
+            String itemName,
+            int type,
+            long itemLength,
+            boolean withReset,
+            PlayDecision decision)
+            throws IOException, StreamNotFoundException {
+
+        return switch (decision) {
+            case LIVE -> playLiveStream(scope, item, itemName, withReset);
+            case VOD -> playVodStream(scope, item, itemName, itemLength, withReset);
+            case WAIT -> waitForLiveStream(scope, itemName, type, itemLength);
+            case NOT_FOUND -> throwStreamNotFound(item);
+        };
+    }
+
+    private PlaybackResult playLiveStream(
+            IScope scope,
+            IPlayItem item,
+            String itemName,
+            boolean withReset)
+            throws StreamNotFoundException, IOException {
+
+        IMessageInput input = providerService.getLiveProviderInput(scope, itemName, false);
+
+        if (!msgInReference.compareAndSet(null, input)) {
+            sendStreamNotFoundStatus(item);
+            throw new StreamNotFoundException(itemName);
+        }
+
+        prepareForLivePlayback();
+        boolean sendNotifications = configureLiveStreamIfPossible(input, item, withReset);
+
+        input.subscribe(this, null);
+        playLive();
+
+        return new PlaybackResult(null, sendNotifications);
+    }
+
+    private void prepareForLivePlayback() {
+        videoFrameDropper.reset(IFrameDropper.SEND_KEYFRAMES_CHECK);
+        waitingForKeyframe = true;
+        log.debug("playItem: set waitingForKeyframe=true, SEND_KEYFRAMES_CHECK mode");
+    }
+
+    private boolean configureLiveStreamIfPossible(IMessageInput input, IPlayItem item, boolean withReset) {
+        if (!(input instanceof IBroadcastScope broadcastScope)) {
+            return true;
+        }
+
+        IBroadcastStream stream = (IBroadcastStream) broadcastScope.getClientBroadcastStream();
+        log.debug("playItem: stream={}, codecInfo={}", stream, stream != null ? stream.getCodecInfo() : "N/A");
+
+        if (stream == null || stream.getCodecInfo() == null) {
+            return true;
+        }
+
+        IVideoStreamCodec videoCodec = stream.getCodecInfo().getVideoCodec();
+        log.debug("playItem: videoCodec={}, hasKeyframe={}, numInterframes={}",
+                videoCodec,
+                videoCodec != null ? videoCodec.getKeyframe() != null : "N/A",
+                videoCodec != null ? videoCodec.getNumInterframes() : "N/A");
+
+        if (videoCodec == null) {
+            return true;
+        }
+
         if (withReset) {
-            log.debug("Resetting times");
-            long currentTime = System.currentTimeMillis();
-            playbackStart = currentTime - streamOffset;
-            nextCheckBufferUnderrun = currentTime + bufferCheckInterval;
-            if (item.getLength() != 0) {
-                ensurePullAndPushRunning();
+            sendReset();
+            sendResetStatus(item);
+            sendStartStatus(item);
+        }
+
+        if (hasImmediateKeyframe(videoCodec)) {
+            enableFullFrameSending();
+        }
+
+        return false;
+    }
+
+    private boolean hasImmediateKeyframe(IVideoStreamCodec videoCodec) {
+        return videoCodec.getNumInterframes() > 0 || videoCodec.getKeyframe() != null;
+    }
+
+    private void enableFullFrameSending() {
+        log.debug("playItem: Keyframe available, switching to SEND_ALL mode");
+        bufferedInterframeIdx = 0;
+        videoFrameDropper.reset(IFrameDropper.SEND_ALL);
+        waitingForKeyframe = false;
+    }
+
+    private PlaybackResult waitForLiveStream(
+            IScope scope,
+            String itemName,
+            int type,
+            long itemLength) {
+
+        IMessageInput input = providerService.getLiveProviderInput(scope, itemName, true);
+
+        if (!msgInReference.compareAndSet(null, input)) {
+            if (isDebug) {
+                log.debug("Message input already set for {}", itemName);
             }
+            return new PlaybackResult(null, true);
+        }
+
+        scheduleLiveWaitJobIfNeeded(itemName, type, itemLength);
+        return new PlaybackResult(null, true);
+    }
+
+    private void scheduleLiveWaitJobIfNeeded(String itemName, int type, long itemLength) {
+        if (type == -1 && itemLength >= 0) {
+            scheduleWaitWithTimeout(itemName, itemLength, true);
+            return;
+        }
+
+        if (type == -2) {
+            scheduleWaitWithTimeout(itemName, 15000, false);
+            return;
+        }
+
+        connectToProvider(itemName);
+    }
+
+    private void scheduleWaitWithTimeout(String itemName, long delay, boolean endStreamAfterTimeout) {
+        if (isDebug) {
+            log.debug("Creating wait job for {}", delay);
+        }
+
+        waitLiveJob = schedulingService.addScheduledOnceJob(delay, new IScheduledJob() {
+            @Override
+            public void execute(ISchedulingService service) {
+                connectToProvider(itemName);
+                waitLiveJob = null;
+
+                if (endStreamAfterTimeout) {
+                    subscriberStream.onChange(StreamState.END);
+                }
+            }
+        });
+    }
+
+    private PlaybackResult playVodStream(
+            IScope scope,
+            IPlayItem item,
+            String itemName,
+            long itemLength,
+            boolean withReset)
+            throws IOException, StreamNotFoundException {
+
+        IMessageInput input = providerService.getVODProviderInput(scope, itemName);
+
+        if (!msgInReference.compareAndSet(null, input)) {
+            sendStreamNotFoundStatus(item);
+            throw new StreamNotFoundException(itemName);
+        }
+
+        if (!input.subscribe(this, null)) {
+            log.warn("Input source subscribe failed");
+            throw new IOException(String.format("Subscribe to %s failed", itemName));
+        }
+
+        IMessage message = playVOD(withReset, itemLength);
+        return new PlaybackResult(message, true);
+    }
+
+    private PlaybackResult throwStreamNotFound(IPlayItem item) throws StreamNotFoundException {
+        sendStreamNotFoundStatus(item);
+        throw new StreamNotFoundException(item.getName());
+    }
+
+    private void sendPostPlayNotifications(IPlayItem item, boolean withReset, boolean sendNotifications) {
+        if (!sendNotifications) {
+            return;
+        }
+
+        if (withReset) {
+            sendReset();
+            sendResetStatus(item);
+        }
+
+        sendStartStatus(item);
+
+        if (!withReset) {
+            sendSwitchStatus();
+        }
+
+        if (item instanceof DynamicPlayItem) {
+            sendTransitionStatus();
+        }
+    }
+
+    private void finalizePlayback(IPlayItem item, boolean withReset) {
+        subscriberStream.onChange(StreamState.PLAYING, item, !pullMode);
+
+        if (withReset) {
+            resetPlaybackTiming(item);
+        }
+    }
+
+    private void resetPlaybackTiming(IPlayItem item) {
+        log.debug("Resetting times");
+
+        long currentTime = System.currentTimeMillis();
+        playbackStart = currentTime - streamOffset;
+        nextCheckBufferUnderrun = currentTime + bufferCheckInterval;
+
+        if (item.getLength() != 0) {
+            ensurePullAndPushRunning();
         }
     }
 
