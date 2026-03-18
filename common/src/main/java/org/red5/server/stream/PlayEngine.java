@@ -1900,7 +1900,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 } else {
                     body.setTimestamp(-timestampOffset);
                 }
-                message = RTMPMessage.build(body);
+                RTMPMessage.build(body);
             } else {
                 return false;
             }

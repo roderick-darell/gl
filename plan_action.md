@@ -9,6 +9,7 @@
   - suppresiion des if inutiles 
   - SUPPRESSION DE CODES MOR 
                - if statement have empty body dans common/src/main/java/org/red5/server/stream/VideoFrameDropper.java
+                - suppression de resultat de methode stocke dans des variables jamais utilise dans common/src/main/java/org/red5/server/stream/PlayEngine.java
   - simplification de codes 
     -  simplification de condition dans un if dns  common/src/main/java/org/red5/server/stream/PlayEngine.java
   - SUPPRESSION D'UN CONCATENATION AVEC "" DANS src/main/java/org/red5/server/ContextLoader.java String configReplaced = config + "";
