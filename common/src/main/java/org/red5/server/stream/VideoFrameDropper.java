@@ -80,7 +80,6 @@ public class VideoFrameDropper implements IFrameDropper {
                             // Send all frames from now on.
                             state = SEND_ALL;
                         }
-                    } else if (type == VideoFrameType.INTERFRAME) {
                     }
                     break;
                 case SEND_KEYFRAMES:

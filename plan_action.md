@@ -8,6 +8,7 @@
 
   - suppresiion des if inutiles 
   - SUPPRESSION DE CODES MOR 
+               - if statement have empty body dans common/src/main/java/org/red5/server/stream/VideoFrameDropper.java
   - SUPPRESSION D'UN CONCATENATION AVEC "" DANS src/main/java/org/red5/server/ContextLoader.java String configReplaced = config + "";
   - reduire la complexite cyclomatique de playengine
   - reduire la complexite cognitive de de play engine 
