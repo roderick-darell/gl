@@ -202,7 +202,7 @@ public class Packet implements Externalizable {
      */
     public boolean isExpired() {
         // if expirationTime is zero, the expiration is not used
-        return expirationTime > 0L ? System.currentTimeMillis() > expirationTime : false;
+        return expirationTime > 0L && System.currentTimeMillis() > expirationTime;
     }
 
     /**
