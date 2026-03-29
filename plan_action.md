@@ -13,7 +13,11 @@
   - simplification de codes 
     -  simplification de condition dans un if dns  common/src/main/java/org/red5/server/stream/PlayEngine.java
   - SUPPRESSION D'UN CONCATENATION AVEC "" DANS src/main/java/org/red5/server/ContextLoader.java String configReplaced = config + "";
-  - reduire la complexite cyclomatique de playengine
+    - reduire la complexite cognitive de execute  de playengine
+      -👉 Situation initiale : execute était une méthode très longue, avec plusieurs responsabilités (gestion des opérations, lecture des messages, envoi RTMP) et beaucoup d’imbrications (if, while, else), ce qui donnait une forte complexité cognitive.
+    👉 Actions réalisées : introduction de guard clauses, suppression de else, début d’extraction de méthodes (ex : sendAndReleaseMessage) et simplification du flux de lecture.
+    👉 Résultat : la logique est plus linéaire, moins imbriquée, et certaines responsabilités commencent à être isolées.
+👉    Bénéfice : réduction significative de la complexité cognitive de execute, rendant le code plus lisible, maintenable et conforme aux attentes Sonar.
   - reduire la complexite cognitive de de play engine 
   - reduire le nombre de ligne duppliquees    common/src/mmain/java/org/red5/server/adapter/application.java   common/src/mmain/java/org/red5/server/stream/consummer/selectfileconsuer
   - ajout d'un test pertinent 

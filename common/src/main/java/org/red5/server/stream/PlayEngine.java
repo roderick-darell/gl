@@ -2233,72 +2233,9 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             if (pushPullRunning.compareAndSet(false, true)) {
                 try {
                     // handle any pending operations
-                    Runnable worker = null;
-                    while (!pendingOperations.isEmpty()) {
-                        log.debug("Pending operations: {}", pendingOperations.size());
-                        // remove the first operation and execute it
-                        worker = pendingOperations.remove();
-                        log.debug("Worker: {}", worker);
-                        // if the operation is seek, ensure it is the last request in the set
-                        while (worker instanceof SeekRunnable) {
-                            Runnable tmp = pendingOperations.peek();
-                            if (tmp != null && tmp instanceof SeekRunnable) {
-                                worker = pendingOperations.remove();
-                            } else {
-                                break;
-                            }
-                        }
-                        if (worker != null) {
-                            log.debug("Executing pending operation");
-                            worker.run();
-                        }
-                    }
+                    processPendingOperations();
                     // receive then send if message is data (not audio or video)
-                    if (subscriberStream.getState() == StreamState.PLAYING && pullMode) {
-                        if (pendingMessage != null) {
-                            IRTMPEvent body = pendingMessage.getBody();
-                            if (okayToSendMessage(body)) {
-                                sendMessage(pendingMessage);
-                                releasePendingMessage();
-                            } else {
-                                return;
-                            }
-                        } else {
-                            IMessage msg = null;
-                            IMessageInput in = msgInReference.get();
-                            do {
-                                msg = in.pullMessage();
-                                if (msg != null) {
-                                    if (msg instanceof RTMPMessage) {
-                                        RTMPMessage rtmpMessage = (RTMPMessage) msg;
-                                        if (checkSendMessageEnabled(rtmpMessage)) {
-                                            // Adjust timestamp when playing lists
-                                            IRTMPEvent body = rtmpMessage.getBody();
-                                            body.setTimestamp(body.getTimestamp() + timestampOffset);
-                                            if (okayToSendMessage(body)) {
-                                                log.trace("ts: {}", rtmpMessage.getBody().getTimestamp());
-                                                sendMessage(rtmpMessage);
-                                                IoBuffer data = ((IStreamData<?>) body).getData();
-                                                if (data != null) {
-                                                    data.free();
-                                                }
-                                                // continue to pull and feed
-                                            } else {
-                                                // ensure p/p executable scheduled and break to exit
-                                                pendingMessage = rtmpMessage;
-                                                ensurePullAndPushRunning();
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // No more packets to send
-                                    log.debug("Ran out of packets");
-                                    runDeferredStop();
-                                }
-                            } while (msg != null);
-                        }
-                    }
+                    if (processPlayback()) return;
                 } catch (IOException err) {
                     // we couldn't get more data, stop stream.
                     log.warn("Error while getting message", err);
@@ -2311,6 +2248,103 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 log.debug("Push / pull already running");
             }
         }
+    }
+
+    private boolean processPlayback() throws IOException {
+        if (isPlaybackActive()) {
+            if (pendingMessage != null) {
+                IRTMPEvent body = pendingMessage.getBody();
+                if (okayToSendMessage(body)) {
+                    sendMessage(pendingMessage);
+                    releasePendingMessage();
+                } else {
+                    return true;
+                }
+            }
+        }
+        if (! isPlaybackActive()) {
+            pullAndPushMessages();
+        }
+
+        return false;
+    }
+
+    private void pullAndPushMessages() throws IOException {
+        IMessage msg = null;
+        IMessageInput in = msgInReference.get();
+        do {
+            msg = in.pullMessage();
+            if (msg != null) {
+                if (!(msg instanceof RTMPMessage)) {
+                    continue;
+                }
+
+                RTMPMessage rtmpMessage = (RTMPMessage) msg;
+                if (!checkSendMessageEnabled(rtmpMessage)) {
+                    continue;
+                }
+
+                IRTMPEvent body = rtmpMessage.getBody();
+                body.setTimestamp(body.getTimestamp() + timestampOffset);
+
+                if (!okayToSendMessage(body)) {
+                    pendingMessage = rtmpMessage;
+                    ensurePullAndPushRunning();
+                    break;
+                }
+
+                sendAndReleaseMessage(body, rtmpMessage);
+            } else {
+                // No more packets to send
+                log.debug("Ran out of packets");
+                runDeferredStop();
+            }
+        } while (msg != null);
+    }
+
+    private void sendAndReleaseMessage(IRTMPEvent body, RTMPMessage rtmpMessage) {
+        log.trace("ts: {}", body.getTimestamp());
+        sendMessage(rtmpMessage);
+
+        if (body instanceof IStreamData<?>) {
+            IoBuffer data = ((IStreamData<?>) body).getData();
+            if (data != null) {
+                data.free();
+            }
+        }
+    }
+
+    private boolean isPlaybackActive() {
+        return subscriberStream.getState() == StreamState.PLAYING && pullMode;
+    }
+
+    private void processPendingOperations() {
+        Runnable worker = null;
+        while (!pendingOperations.isEmpty()) {
+            log.debug("Pending operations: {}", pendingOperations.size());
+            // remove the first operation and execute it
+            worker = getLastPendingSeekOperation();
+            if (worker != null) {
+                log.debug("Executing pending operation");
+                worker.run();
+            }
+        }
+    }
+
+    private Runnable getLastPendingSeekOperation() {
+        Runnable worker;
+        worker = pendingOperations.remove();
+        log.debug("Worker: {}", worker);
+        // if the operation is seek, ensure it is the last request in the set
+        while (worker instanceof SeekRunnable) {
+            Runnable tmp = pendingOperations.peek();
+            if (tmp != null && tmp instanceof SeekRunnable) {
+                worker = pendingOperations.remove();
+            } else {
+                break;
+            }
+        }
+        return worker;
     }
 
     private class DeferredStopRunnable implements IScheduledJob {
