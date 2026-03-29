@@ -27,7 +27,7 @@ import org.red5.server.stream.IStreamData;
  *
  * @author mondain
  */
-public class AudioData extends BaseEvent implements IStreamData<AudioData>, IStreamPacket {
+public class AudioData extends BaseDataEvent implements IStreamData<AudioData>, IStreamPacket {
 
     private static final long serialVersionUID = -4102940670913999407L;
 
@@ -90,15 +90,17 @@ public class AudioData extends BaseEvent implements IStreamData<AudioData>, IStr
      */
     public AudioData(IoBuffer data, boolean copy) {
         super(Type.STREAM_DATA);
-        if (copy) {
-            byte[] array = new byte[data.remaining()];
-            data.mark();
-            data.get(array);
-            data.reset();
-            setData(array);
-        } else {
-            setData(data);
-        }
+        initializeData(data, copy);
+    }
+
+    @Override
+    protected void applyData(byte[] data) {
+        setData(data);
+    }
+
+    @Override
+    protected void applyData(IoBuffer data) {
+        setData(data);
     }
 
     /** {@inheritDoc} */

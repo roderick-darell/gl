@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author mondain
  */
-public class Aggregate extends BaseEvent implements IoConstants, IStreamData<Aggregate>, IStreamPacket {
+public class Aggregate extends BaseDataEvent implements IoConstants, IStreamData<Aggregate>, IStreamPacket {
 
     private static final long serialVersionUID = 5538859593815804830L;
 
@@ -74,15 +74,17 @@ public class Aggregate extends BaseEvent implements IoConstants, IStreamData<Agg
      */
     public Aggregate(IoBuffer data, boolean copy) {
         super(Type.STREAM_DATA);
-        if (copy) {
-            byte[] array = new byte[data.remaining()];
-            data.mark();
-            data.get(array);
-            data.reset();
-            setData(array);
-        } else {
-            setData(data);
-        }
+        initializeData(data, copy);
+    }
+
+    @Override
+    protected void applyData(byte[] data) {
+        setData(data);
+    }
+
+    @Override
+    protected void applyData(IoBuffer data) {
+        setData(data);
     }
 
     /** {@inheritDoc} */

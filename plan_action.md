@@ -20,6 +20,10 @@
 👉    Bénéfice : réduction significative de la complexité cognitive de execute, rendant le code plus lisible, maintenable et conforme aux attentes Sonar.
   - reduire la complexite cognitive de de play engine 
   - reduire le nombre de ligne duppliquees    common/src/mmain/java/org/red5/server/adapter/application.java   common/src/mmain/java/org/red5/server/stream/consummer/selectfileconsuer
+  - reduction de lignes duppliquees entre les methodes de differentes classes Avant, AudioData, VideoData et Aggregate avaient chacune le même bloc de code dupliqué dans leur constructeur pour gérer IoBuffer et le mode copy, ce qui augmentait la duplication et rendait la maintenance plus coûteuse.
+    On a extrait l’algorithme commun dans BaseEvent via une méthode partagée (initializeData), tout en laissant à chaque classe fille la responsabilité de son setData(...) spécifique via des méthodes dédiées/abstraites.
+    C’est mieux, car la logique commune n’existe plus qu’à un seul endroit, donc moins de duplication Sonar et moins de risque d’oublier une classe lors d’une future modification.
+    Le code est aussi plus clair : BaseEvent porte le comportement commun, et chaque sous-classe garde uniquement sa partie spécifique.
   - ajout d'un test pertinent 
   - remplacer le fait qu'une methode retourne un code d'erreur par le fait qu'eel leve une exception 
   - decomposer RTMPconnection + reduire sa complexite 

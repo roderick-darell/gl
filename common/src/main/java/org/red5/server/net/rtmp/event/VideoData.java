@@ -29,7 +29,7 @@ import org.red5.util.ByteNibbler;
  *
  * @author mondain
  */
-public class VideoData extends BaseEvent implements IoConstants, IStreamData<VideoData>, IStreamPacket {
+public class VideoData extends BaseDataEvent implements IoConstants, IStreamData<VideoData>, IStreamPacket {
 
     private static final long serialVersionUID = 5538859593815804830L;
 
@@ -91,6 +91,16 @@ public class VideoData extends BaseEvent implements IoConstants, IStreamData<Vid
         setData(data);
     }
 
+    @Override
+    protected void applyData(byte[] data) {
+        setData(data);
+    }
+
+    @Override
+    protected void applyData(IoBuffer data) {
+        setData(data);
+    }
+
     /**
      * Create video data event with given data buffer
      *
@@ -101,15 +111,7 @@ public class VideoData extends BaseEvent implements IoConstants, IStreamData<Vid
      */
     public VideoData(IoBuffer data, boolean copy) {
         super(Type.STREAM_DATA);
-        if (copy) {
-            byte[] array = new byte[data.remaining()];
-            data.mark();
-            data.get(array);
-            data.reset();
-            setData(array);
-        } else {
-            setData(data);
-        }
+        initializeData(data, copy);
     }
 
     /** {@inheritDoc} */
