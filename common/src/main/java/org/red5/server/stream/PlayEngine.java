@@ -85,6 +85,7 @@ import org.slf4j.LoggerFactory;
 public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnectionListener {
 
     private static final Logger log = LoggerFactory.getLogger(PlayEngine.class);
+
     public static final int INITIAL_BUFFER_SIZE = 102;
 
     private static boolean isDebug = log.isDebugEnabled();
@@ -233,8 +234,11 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     private int playDecision = PLAY_DECISION_NOT_FOUND;
 
     private static final int PLAY_DECISION_LIVE = 0;
+
     private static final int PLAY_DECISION_VOD = 1;
+
     private static final int PLAY_DECISION_WAIT = 2;
+
     private static final int PLAY_DECISION_NOT_FOUND = 3;
 
     /**
@@ -375,10 +379,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
      *             Stream had IO exception
      */
     private enum PlayDecision {
-        LIVE(PLAY_DECISION_LIVE),
-        VOD(PLAY_DECISION_VOD),
-        WAIT(PLAY_DECISION_WAIT),
-        NOT_FOUND(PLAY_DECISION_NOT_FOUND);
+        LIVE(PLAY_DECISION_LIVE), VOD(PLAY_DECISION_VOD), WAIT(PLAY_DECISION_WAIT), NOT_FOUND(PLAY_DECISION_NOT_FOUND);
 
         private final int code;
 
@@ -394,8 +395,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     private record PlaybackResult(IMessage message, boolean sendNotifications) {
     }
 
-    public void play(IPlayItem item, boolean withReset)
-            throws StreamNotFoundException, IllegalStateException, IOException {
+    public void play(IPlayItem item, boolean withReset) throws StreamNotFoundException, IllegalStateException, IOException {
 
         ensureStreamStopped();
         cleanupPreviousInput();
@@ -492,15 +492,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         return sourceType == IProviderService.INPUT_TYPE.VOD ? PlayDecision.VOD : PlayDecision.NOT_FOUND;
     }
 
-    private PlaybackResult executePlayback(
-            IScope scope,
-            IPlayItem item,
-            String itemName,
-            int type,
-            long itemLength,
-            boolean withReset,
-            PlayDecision decision)
-            throws IOException, StreamNotFoundException {
+    private PlaybackResult executePlayback(IScope scope, IPlayItem item, String itemName, int type, long itemLength, boolean withReset, PlayDecision decision) throws IOException, StreamNotFoundException {
 
         return switch (decision) {
             case LIVE -> playLiveStream(scope, item, itemName, withReset);
@@ -510,12 +502,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         };
     }
 
-    private PlaybackResult playLiveStream(
-            IScope scope,
-            IPlayItem item,
-            String itemName,
-            boolean withReset)
-            throws StreamNotFoundException, IOException {
+    private PlaybackResult playLiveStream(IScope scope, IPlayItem item, String itemName, boolean withReset) throws StreamNotFoundException, IOException {
 
         IMessageInput input = providerService.getLiveProviderInput(scope, itemName, false);
 
@@ -552,10 +539,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         }
 
         IVideoStreamCodec videoCodec = stream.getCodecInfo().getVideoCodec();
-        log.debug("playItem: videoCodec={}, hasKeyframe={}, numInterframes={}",
-                videoCodec,
-                videoCodec != null ? videoCodec.getKeyframe() != null : "N/A",
-                videoCodec != null ? videoCodec.getNumInterframes() : "N/A");
+        log.debug("playItem: videoCodec={}, hasKeyframe={}, numInterframes={}", videoCodec, videoCodec != null ? videoCodec.getKeyframe() != null : "N/A", videoCodec != null ? videoCodec.getNumInterframes() : "N/A");
 
         if (videoCodec == null) {
             return true;
@@ -585,11 +569,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         waitingForKeyframe = false;
     }
 
-    private PlaybackResult waitForLiveStream(
-            IScope scope,
-            String itemName,
-            int type,
-            long itemLength) {
+    private PlaybackResult waitForLiveStream(IScope scope, String itemName, int type, long itemLength) {
 
         IMessageInput input = providerService.getLiveProviderInput(scope, itemName, true);
 
@@ -636,13 +616,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         });
     }
 
-    private PlaybackResult playVodStream(
-            IScope scope,
-            IPlayItem item,
-            String itemName,
-            long itemLength,
-            boolean withReset)
-            throws IOException, StreamNotFoundException {
+    private PlaybackResult playVodStream(IScope scope, IPlayItem item, String itemName, long itemLength, boolean withReset) throws IOException, StreamNotFoundException {
 
         IMessageInput input = providerService.getVODProviderInput(scope, itemName);
 
@@ -2235,7 +2209,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                     // handle any pending operations
                     processPendingOperations();
                     // receive then send if message is data (not audio or video)
-                    if (processPlayback()) return;
+                    if (processPlayback())
+                        return;
                 } catch (IOException err) {
                     // we couldn't get more data, stop stream.
                     log.warn("Error while getting message", err);
@@ -2262,7 +2237,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 }
             }
         }
-        if (! isPlaybackActive()) {
+        if (!isPlaybackActive()) {
             pullAndPushMessages();
         }
 
