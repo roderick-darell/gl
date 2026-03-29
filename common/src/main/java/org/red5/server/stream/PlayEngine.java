@@ -1620,10 +1620,12 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         paramMap.put("position", position);
         oobCtrlMsg.setServiceParamMap(paramMap);
         msgInReference.get().sendOOBControlMessage(this, oobCtrlMsg);
-        if (oobCtrlMsg.getResult() instanceof Integer) {
+        Object result = oobCtrlMsg.getResult();
+        if (result instanceof Integer) {
             return (Integer) oobCtrlMsg.getResult();
         } else {
-            return -1;
+            throw new SendVODSeekCMException("Expected Integer seek result but got: " + result);
+
         }
     }
 
