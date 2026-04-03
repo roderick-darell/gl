@@ -167,6 +167,19 @@ public class ClientRegistry implements IClientRegistry, ClientRegistryMXBean {
         return getClient(id);
     }
 
+    private String extractClientId(Object[] params) {
+        return params != null && params.length > 0 && params[0] instanceof String ? (String) params[0] : null;
+    }
+
+    public IClient createClient(Object[] params) {
+        String idString = extractClientId(params);
+        return new Client(idString, this);
+    }
+
+    public void registerClient(IClient client) {
+        addClient(client);
+    }
+
     /**
      * Return client from next id with given params
      *
@@ -180,9 +193,8 @@ public class ClientRegistry implements IClientRegistry, ClientRegistryMXBean {
      */
     public IClient newClient(Object[] params) throws ClientNotFoundException, ClientRejectedException {
         // derive client id from the connection params or use next
-        String idString = params != null && params.length > 0 && params[0] instanceof String ? (String) params[0] : null;
-        IClient client = new Client(idString, this);
-        addClient(client);
+        IClient client = createClient(params);
+        registerClient(client);
         return client;
     }
 
