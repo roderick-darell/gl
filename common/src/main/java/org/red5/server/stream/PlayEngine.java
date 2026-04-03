@@ -7,60 +7,18 @@
 
 package org.red5.server.stream;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-
 import org.apache.mina.core.buffer.IoBuffer;
-import org.red5.codec.IAudioStreamCodec;
-import org.red5.codec.IStreamCodecInfo;
-import org.red5.codec.IVideoStreamCodec;
+import org.red5.codec.*;
 import org.red5.codec.IVideoStreamCodec.FrameData;
-import org.red5.codec.StreamCodecInfo;
-import org.red5.codec.VideoFrameType;
-import org.red5.io.amf.Output;
-import org.red5.io.utils.ObjectMap;
 import org.red5.server.api.scheduling.IScheduledJob;
 import org.red5.server.api.scheduling.ISchedulingService;
 import org.red5.server.api.scope.IBroadcastScope;
 import org.red5.server.api.scope.IScope;
-import org.red5.server.api.stream.IBroadcastStream;
-import org.red5.server.api.stream.IPlayItem;
-import org.red5.server.api.stream.IPlaylistSubscriberStream;
-import org.red5.server.api.stream.ISubscriberStream;
-import org.red5.server.api.stream.OperationNotSupportedException;
-import org.red5.server.api.stream.StreamState;
+import org.red5.server.api.stream.*;
 import org.red5.server.api.stream.support.DynamicPlayItem;
-import org.red5.server.messaging.AbstractMessage;
-import org.red5.server.messaging.IConsumer;
-import org.red5.server.messaging.IFilter;
-import org.red5.server.messaging.IMessage;
-import org.red5.server.messaging.IMessageComponent;
-import org.red5.server.messaging.IMessageInput;
-import org.red5.server.messaging.IMessageOutput;
-import org.red5.server.messaging.IPassive;
-import org.red5.server.messaging.IPipe;
-import org.red5.server.messaging.IPipeConnectionListener;
-import org.red5.server.messaging.IProvider;
-import org.red5.server.messaging.IPushableConsumer;
-import org.red5.server.messaging.InMemoryPushPushPipe;
-import org.red5.server.messaging.OOBControlMessage;
-import org.red5.server.messaging.PipeConnectionEvent;
-import org.red5.server.net.rtmp.event.Aggregate;
-import org.red5.server.net.rtmp.event.AudioData;
-import org.red5.server.net.rtmp.event.IRTMPEvent;
-import org.red5.server.net.rtmp.event.Notify;
-import org.red5.server.net.rtmp.event.Ping;
+import org.red5.server.messaging.*;
+import org.red5.server.net.rtmp.event.*;
 import org.red5.server.net.rtmp.event.Ping.PingType;
-import org.red5.server.net.rtmp.event.VideoData;
 import org.red5.server.net.rtmp.message.Constants;
 import org.red5.server.net.rtmp.message.Header;
 import org.red5.server.net.rtmp.status.Status;
@@ -70,6 +28,16 @@ import org.red5.server.stream.message.ResetMessage;
 import org.red5.server.stream.message.StatusMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A play engine for playing a IPlayItem.
@@ -84,6 +52,8 @@ import org.slf4j.LoggerFactory;
  */
 public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnectionListener {
     private final PlaybackNotifier notifier;
+
+    private final PlaybackJobController playbackJobController;
 
     private final PlaybackControlSender playbackControlSender;
 
@@ -274,11 +244,48 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         // get the stream id
         streamId = subscriberStream.getStreamId();
         this.notifier = new PlaybackNotifier(this);
+        this.playbackJobController = new PlaybackJobController(this);
         this.playbackControlSender = new PlaybackControlSender(this);
     }
 
     void pushMessageInternal(AbstractMessage message) {
         doPushMessage(message);
+    }
+
+    ISubscriberStream getSubscriberStreamInternal() {
+        return subscriberStream;
+    }
+
+    ISchedulingService getSchedulingServiceInternal() {
+        return schedulingService;
+    }
+
+    String getPullAndPushInternal() {
+        return pullAndPush;
+    }
+
+    void setPullAndPushInternal(String jobName) {
+        this.pullAndPush = jobName;
+    }
+
+    String getDeferredStopInternal() {
+        return deferredStop;
+    }
+
+    void setDeferredStopInternal(String jobName) {
+        this.deferredStop = jobName;
+    }
+
+    String getWaitLiveJobInternal() {
+        return waitLiveJob;
+    }
+
+    void setWaitLiveJobInternal(String jobName) {
+        this.waitLiveJob = jobName;
+    }
+
+    boolean isPullModeInternal() {
+        return pullMode;
     }
 
     /** int getLastMessageTsInternal() {
@@ -717,7 +724,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         nextCheckBufferUnderrun = currentTime + bufferCheckInterval;
 
         if (item.getLength() != 0) {
-            ensurePullAndPushRunning();
+            playbackJobController.ensurePullAndPushRunning();
         }
     }
 
@@ -920,7 +927,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             case PLAYING:
             case STOPPED:
                 subscriberStream.setState(StreamState.PAUSED);
-                clearWaitJobs();
+                playbackJobController.clearWaitJobs();
                 notifier.sendPauseStatus(currentItem.get());
                 sendClearPing();
                 subscriberStream.onChange(StreamState.PAUSED, currentItem.get(), position);
@@ -954,7 +961,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                         // Resume after end of stream
                         stop();
                     } else {
-                        ensurePullAndPushRunning();
+                        playbackJobController.ensurePullAndPushRunning();
                     }
                 } else {
                     subscriberStream.onChange(StreamState.RESUMED, currentItem.get(), position);
@@ -979,8 +986,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     public void seek(int position) throws IllegalStateException, OperationNotSupportedException {
         // add this pending seek operation to the list
         pendingOperations.add(new SeekRunnable(position));
-        cancelDeferredStop();
-        ensurePullAndPushRunning();
+        playbackJobController.cancelDeferredStop();
+        playbackJobController.ensurePullAndPushRunning();
     }
 
     /**
@@ -1004,8 +1011,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                     msgInReference.set(null);
                 }
                 subscriberStream.onChange(StreamState.STOPPED, currentItem.get());
-                clearWaitJobs();
-                cancelDeferredStop();
+                playbackJobController.clearWaitJobs();
+                playbackJobController.cancelDeferredStop();
                 if (subscriberStream instanceof IPlaylistSubscriberStream) {
                     IPlaylistSubscriberStream pss = (IPlaylistSubscriberStream) subscriberStream;
                     if (!pss.hasMoreItems()) {
@@ -1024,8 +1031,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 }
                 break;
             case CLOSED:
-                clearWaitJobs();
-                cancelDeferredStop();
+                playbackJobController.clearWaitJobs();
+                playbackJobController.cancelDeferredStop();
                 break;
             case STOPPED:
                 log.trace("Already in stopped state");
@@ -1049,7 +1056,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 msgInReference.set(null);
             }
             subscriberStream.setState(StreamState.CLOSED);
-            clearWaitJobs();
+            playbackJobController.clearWaitJobs();
             releasePendingMessage();
             lastMessageTs = 0;
             // XXX is clear ping required?
@@ -1149,33 +1156,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             }
         }
         return false;
-    }
-
-    /**
-     * Make sure the pull and push processing is running.
-     */
-    private void ensurePullAndPushRunning() {
-        log.trace("State should be PLAYING to running this task: {}", subscriberStream.getState());
-        if (pullMode && pullAndPush == null && subscriberStream.getState() == StreamState.PLAYING) {
-            // client buffer is at least 100ms
-            pullAndPush = subscriberStream.scheduleWithFixedDelay(new PullAndPushRunnable(), 10);
-        }
-    }
-
-    /**
-     * Clear all scheduled waiting jobs
-     */
-    private void clearWaitJobs() {
-        log.debug("Clear wait jobs");
-        if (pullAndPush != null) {
-            subscriberStream.cancelJob(pullAndPush);
-            releasePendingMessage();
-            pullAndPush = null;
-        }
-        if (waitLiveJob != null) {
-            schedulingService.removeScheduledJob(waitLiveJob);
-            waitLiveJob = null;
-        }
     }
 
     /**
@@ -1850,28 +1830,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     }
 
     /**
-     * Schedule a stop to be run from a separate thread to allow the background thread to stop cleanly.
-     */
-    private void runDeferredStop() {
-        // Stop current jobs from running.
-        clearWaitJobs();
-        // Schedule deferred stop executor.
-        log.trace("Ran deferred stop");
-        if (deferredStop == null) {
-            // set deferred stop if we get a job name returned
-            deferredStop = subscriberStream.scheduleWithFixedDelay(new DeferredStopRunnable(), 100);
-        }
-    }
-
-    private void cancelDeferredStop() {
-        log.debug("Cancel deferred stop");
-        if (deferredStop != null) {
-            subscriberStream.cancelJob(deferredStop);
-            deferredStop = null;
-        }
-    }
-
-    /**
      * Runnable worker to handle seek operations.
      */
     private final class SeekRunnable implements Runnable {
@@ -1897,7 +1855,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                         throw new RuntimeException();
                     }
                     releasePendingMessage();
-                    clearWaitJobs();
+                    playbackJobController.clearWaitJobs();
                     break;
                 default:
                     throw new IllegalStateException("Cannot seek in current state");
@@ -2005,7 +1963,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             }
             // start pull-push
             if (startPullPushThread) {
-                ensurePullAndPushRunning();
+                playbackJobController.ensurePullAndPushRunning();
             }
         }
     }
@@ -2030,7 +1988,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 } catch (IOException err) {
                     // we couldn't get more data, stop stream.
                     log.warn("Error while getting message", err);
-                    runDeferredStop();
+                    playbackJobController.runDeferredStop();
                 } finally {
                     // reset running flag
                     pushPullRunning.compareAndSet(true, false);
@@ -2080,7 +2038,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 
                 if (!okayToSendMessage(body)) {
                     pendingMessage = rtmpMessage;
-                    ensurePullAndPushRunning();
+                    playbackJobController.ensurePullAndPushRunning();
                     break;
                 }
 
@@ -2088,9 +2046,21 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             } else {
                 // No more packets to send
                 log.debug("Ran out of packets");
-                runDeferredStop();
+                playbackJobController.runDeferredStop();
             }
         } while (msg != null);
+    }
+
+    void releasePendingMessageInternal() {
+        releasePendingMessage();
+    }
+
+    String scheduleDeferredStopJobInternal() {
+        return subscriberStream.scheduleWithFixedDelay(new DeferredStopRunnable(), 100);
+    }
+
+    String schedulePullAndPushJobInternal() {
+        return subscriberStream.scheduleWithFixedDelay(new PullAndPushRunnable(), 10);
     }
 
     private void sendAndReleaseMessage(IRTMPEvent body, RTMPMessage rtmpMessage) {
