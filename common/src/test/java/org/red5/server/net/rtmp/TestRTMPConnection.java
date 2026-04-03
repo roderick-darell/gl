@@ -1,10 +1,18 @@
 package org.red5.server.net.rtmp;
 
 import static org.junit.Assert.*;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.red5.codec.IStreamCodecInfo;
+import org.red5.server.api.scope.IScope;
+import org.red5.server.api.stream.IClientStream;
+import org.red5.server.api.stream.IPlaylistSubscriberStream;
+import org.red5.server.api.stream.IStreamCapableConnection;
+
 import static org.red5.server.net.rtmp.RTMPConnection.MAX_RESERVED_STREAMS;
 
 public class TestRTMPConnection {
@@ -60,18 +68,89 @@ public class TestRTMPConnection {
     //		fail("Not yet implemented");
     //	}
     //
-    //	@Test
-    //	public void testGetStreamById() {
-    //		System.out.println("\n testGetStreamById");
-    //		RTMPConnection conn = new RTMPMinaConnection();
-    //
-    //		IClientStream stream = conn.getStreamById(0);
-    //		System.out.printf("Stream for stream id 0: %s\n", stream);
-    //		assertNull(stream);
-    //		stream = conn.getStreamById(1);
-    //		System.out.printf("Stream for stream id 1: %s\n", stream);
-    //
-    //	}
+    @Test
+    public void testGetStreamById() {
+        RTMPMinaConnection conn = new RTMPMinaConnection();
+
+        assertNull(conn.getStreamById(1));
+
+        Number streamId = 1.0d;
+
+        IClientStream stream = new IClientStream() {
+            @Override
+            public Number getStreamId() {
+                return streamId;
+            }
+
+            @Override
+            public IStreamCapableConnection getConnection() {
+                return null;
+            }
+
+            @Override
+            public void setClientBufferDuration(int bufferTime) {
+
+            }
+
+            @Override
+            public int getClientBufferDuration() {
+                return 0;
+            }
+
+            @Override
+            public void setBroadcastStreamPublishName(String streamName) {
+
+            }
+
+            @Override
+            public String getBroadcastStreamPublishName() {
+                return null;
+            }
+
+            @Override
+            public String getName() {
+                return "";
+            }
+
+            @Override
+            public IStreamCodecInfo getCodecInfo() {
+                return null;
+            }
+
+            @Override
+            public IScope getScope() {
+                return null;
+            }
+
+            // implémentations vides pour compiler
+            @Override
+            public void start() {
+            }
+
+            @Override
+            public void stop() {
+            }
+
+            @Override
+            public void close() {
+            }
+
+            @Override
+            public long getCreationTime() {
+                return 0;
+            }
+
+            @Override
+            public long getStartTime() {
+                return 0;
+            }
+        };
+
+        conn.streams.put(streamId.doubleValue(), stream);
+
+        assertSame(stream, conn.getStreamById(streamId));
+
+    }
 
     @Test
     public void testGetStreamIdForChannelId() {
