@@ -85,6 +85,8 @@ import org.slf4j.LoggerFactory;
 public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnectionListener {
     private final PlaybackNotifier notifier;
 
+    private final PlaybackControlSender playbackControlSender;
+
     private static final Logger log = LoggerFactory.getLogger(PlayEngine.class);
 
     public static final int INITIAL_BUFFER_SIZE = 102;
@@ -272,6 +274,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         // get the stream id
         streamId = subscriberStream.getStreamId();
         this.notifier = new PlaybackNotifier(this);
+        this.playbackControlSender = new PlaybackControlSender(this);
     }
 
     void pushMessageInternal(AbstractMessage message) {
@@ -838,11 +841,11 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         if (withReset) {
             releasePendingMessage();
         }
-        sendVODInitCM(currentItem.get());
+        playbackControlSender.sendVODInitCM(currentItem.get());
         // Don't use pullAndPush to detect IOExceptions prior to sending NetStream.Play.Start
         int start = (int) currentItem.get().getStart();
         if (start > 0) {
-            streamOffset = sendVODSeekCM(start);
+            streamOffset = playbackControlSender.sendVODSeekCM(start);
             // We seeked to the nearest keyframe so use real timestamp now
             if (streamOffset == -1) {
                 streamOffset = start;
@@ -943,7 +946,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 sendReset();
                 notifier.sendResumeStatus(currentItem.get());
                 if (pullMode) {
-                    sendVODSeekCM(position);
+                    playbackControlSender.sendVODSeekCM(position);
                     subscriberStream.onChange(StreamState.RESUMED, currentItem.get(), position);
                     playbackStart = System.currentTimeMillis() - position;
                     long length = currentItem.get().getLength();
@@ -1453,63 +1456,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         doPushMessage(seek);
     }
 
-    /**
-     * Send VOD init control message
-     *
-     * @param item
-     *            Playlist item
-     */
-    private void sendVODInitCM(IPlayItem item) {
-        OOBControlMessage oobCtrlMsg = new OOBControlMessage();
-        oobCtrlMsg.setTarget(IPassive.KEY);
-        oobCtrlMsg.setServiceName("init");
-        Map<String, Object> paramMap = new HashMap<String, Object>(1);
-        paramMap.put("startTS", (int) item.getStart());
-        oobCtrlMsg.setServiceParamMap(paramMap);
-        msgInReference.get().sendOOBControlMessage(this, oobCtrlMsg);
-    }
-
-    /**
-     * Send VOD seek control message
-     *
-     * @param msgIn
-     *            Message input
-     * @param position
-     *            Playlist item
-     * @return Out-of-band control message call result or -1 on failure
-     */
-    private int sendVODSeekCM(int position) {
-        OOBControlMessage oobCtrlMsg = new OOBControlMessage();
-        oobCtrlMsg.setTarget(ISeekableProvider.KEY);
-        oobCtrlMsg.setServiceName("seek");
-        Map<String, Object> paramMap = new HashMap<String, Object>(1);
-        paramMap.put("position", position);
-        oobCtrlMsg.setServiceParamMap(paramMap);
-        msgInReference.get().sendOOBControlMessage(this, oobCtrlMsg);
-        Object result = oobCtrlMsg.getResult();
-        if (result instanceof Integer) {
-            return (Integer) oobCtrlMsg.getResult();
-        } else {
-            throw new SendVODSeekCMException("Expected Integer seek result but got: " + result);
-
-        }
-    }
-
-    /**
-     * Send VOD check video control message
-     *
-     * @return result of oob control message
-     */
-    private boolean sendCheckVideoCM() {
-        OOBControlMessage oobCtrlMsg = new OOBControlMessage();
-        oobCtrlMsg.setTarget(IStreamTypeAwareProvider.KEY);
-        oobCtrlMsg.setServiceName("hasVideo");
-        msgInReference.get().sendOOBControlMessage(this, oobCtrlMsg);
-        if (oobCtrlMsg.getResult() instanceof Boolean) {
-            return (Boolean) oobCtrlMsg.getResult();
-        } else {
-            return false;
-        }
+    IMessageInput getMessageInputInternal() {
+        return msgInReference.get();
     }
 
     /** {@inheritDoc} */
@@ -1958,7 +1906,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             sendReset();
             sendSeekStatus(currentItem.get(), position);
             sendStartStatus(currentItem.get());
-            int seekPos = sendVODSeekCM(position);
+            int seekPos = playbackControlSender.sendVODSeekCM(position);
             // we seeked to the nearest keyframe so use real timestamp now
             if (seekPos == -1) {
                 seekPos = position;
@@ -1975,7 +1923,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 case PAUSED:
                 case STOPPED:
                     // we send a single snapshot on pause
-                    if (sendCheckVideoCM()) {
+                    if (playbackControlSender.sendCheckVideoCM()) {
                         IMessage msg = null;
                         IMessageInput in = msgInReference.get();
                         do {
@@ -2021,7 +1969,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             if (!messageSent && subscriberStream.getState() == StreamState.PLAYING) {
                 boolean isRTMPTPlayback = subscriberStream.getConnection().getProtocol().equals("rtmpt");
                 // send all frames from last keyframe up to requested position and fill client buffer
-                if (sendCheckVideoCM()) {
+                if (playbackControlSender.sendCheckVideoCM()) {
                     final long clientBuffer = subscriberStream.getClientBufferDuration();
                     IMessage msg = null;
                     IMessageInput in = msgInReference.get();
