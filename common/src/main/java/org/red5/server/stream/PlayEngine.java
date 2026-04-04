@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.red5.server.stream.PlaybackDecisionResolver;
 
 /**
  * A play engine for playing a IPlayItem.
@@ -54,6 +55,8 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     private final PlaybackNotifier notifier;
 
     private final PlaybackJobController playbackJobController;
+
+    private PlaybackDecisionResolver playbackDecisionResolver;
 
     private final PlaybackControlSender playbackControlSender;
 
@@ -246,6 +249,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         this.notifier = new PlaybackNotifier(this);
         this.playbackJobController = new PlaybackJobController(this);
         this.playbackControlSender = new PlaybackControlSender(this);
+        this.playbackDecisionResolver = new PlaybackDecisionResolver();
     }
 
     void pushMessageInternal(AbstractMessage message) {
@@ -418,7 +422,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
      * @throws IOException
      *             Stream had IO exception
      */
-    private enum PlayDecision {
+    enum PlayDecision {
         LIVE(PLAY_DECISION_LIVE), VOD(PLAY_DECISION_VOD), WAIT(PLAY_DECISION_WAIT), NOT_FOUND(PLAY_DECISION_NOT_FOUND);
 
         private final int code;
@@ -436,19 +440,20 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     }
 
     public void play(IPlayItem item, boolean withReset) throws StreamNotFoundException, IllegalStateException, IOException {
+        int type = playbackDecisionResolver.toPlayType(item);
 
         ensureStreamStopped();
         cleanupPreviousInput();
 
         currentItem.set(item);
 
-        int type = toPlayType(item);
+        this.playbackDecisionResolver = new PlaybackDecisionResolver();
         long itemLength = item.getLength();
         String itemName = item.getName();
         IScope scope = subscriberStream.getScope();
 
         IProviderService.INPUT_TYPE sourceType = providerService.lookupProviderInput(scope, itemName, type);
-        PlayDecision decision = determinePlayDecision(type, sourceType);
+        PlayDecision decision = playbackDecisionResolver.determinePlayDecision(type, sourceType);
         playDecision = decision.code();
 
         if (isDebug) {
@@ -486,58 +491,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 
     long getBytesSentInternal() {
         return bytesSent.get();
-    }
-
-    private int toPlayType(IPlayItem item) {
-        int type = (int) (item.getStart() / 1000);
-        log.debug("Type {}", type);
-        return type;
-    }
-
-    private PlayDecision determinePlayDecision(int type, IProviderService.INPUT_TYPE sourceType) {
-        return switch (type) {
-            case -2 -> determinePlayDecisionForLiveOrRecorded(sourceType);
-            case -1 -> determinePlayDecisionForLiveOnly(sourceType);
-            case 0 -> determinePlayDecisionForZeroStart(sourceType);
-            default -> determinePlayDecisionForRecordedOnly(sourceType);
-        };
-    }
-
-    private PlayDecision determinePlayDecisionForLiveOrRecorded(IProviderService.INPUT_TYPE sourceType) {
-        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-            return PlayDecision.LIVE;
-        }
-        if (sourceType == IProviderService.INPUT_TYPE.VOD) {
-            return PlayDecision.VOD;
-        }
-        if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
-            return PlayDecision.WAIT;
-        }
-        return PlayDecision.NOT_FOUND;
-    }
-
-    private PlayDecision determinePlayDecisionForLiveOnly(IProviderService.INPUT_TYPE sourceType) {
-        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-            return PlayDecision.LIVE;
-        }
-        if (sourceType == IProviderService.INPUT_TYPE.LIVE_WAIT) {
-            return PlayDecision.WAIT;
-        }
-        return PlayDecision.NOT_FOUND;
-    }
-
-    private PlayDecision determinePlayDecisionForZeroStart(IProviderService.INPUT_TYPE sourceType) {
-        if (sourceType == IProviderService.INPUT_TYPE.LIVE) {
-            return PlayDecision.LIVE;
-        }
-        if (sourceType == IProviderService.INPUT_TYPE.VOD) {
-            return PlayDecision.VOD;
-        }
-        return PlayDecision.NOT_FOUND;
-    }
-
-    private PlayDecision determinePlayDecisionForRecordedOnly(IProviderService.INPUT_TYPE sourceType) {
-        return sourceType == IProviderService.INPUT_TYPE.VOD ? PlayDecision.VOD : PlayDecision.NOT_FOUND;
     }
 
     private PlaybackResult executePlayback(IScope scope, IPlayItem item, String itemName, int type, long itemLength, boolean withReset, PlayDecision decision) throws IOException, StreamNotFoundException {
