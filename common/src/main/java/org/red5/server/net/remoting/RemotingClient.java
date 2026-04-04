@@ -94,7 +94,10 @@ public class RemotingClient implements IRemotingClient {
      *            Timeout for one request in milliseconds
      */
     public RemotingClient(String url, int timeout) {
-        client = HttpConnectionUtil.getClient(timeout);
+
+        HttpConnectionUtil httpConnectionUtil = new HttpConnectionUtil();
+        client = httpConnectionUtil.getClient(timeout);
+
         this.url = url;
         log.debug("RemotingClient created  - url: {} timeout: {}", url, timeout);
     }

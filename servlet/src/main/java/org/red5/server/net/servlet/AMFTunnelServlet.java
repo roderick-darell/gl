@@ -65,7 +65,8 @@ public class AMFTunnelServlet extends HttpServlet {
      */
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        HttpClient client = HttpConnectionUtil.getClient(connectionTimeout);
+        HttpConnectionUtil httpConnectionUtil = new HttpConnectionUtil();
+        HttpClient client = httpConnectionUtil.getClient();
         //setup POST
         HttpPost post = null;
         try {

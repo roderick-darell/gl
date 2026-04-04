@@ -65,7 +65,8 @@ public class RTMPTClientConnector extends Thread {
     protected volatile boolean stopRequested = false;
 
     {
-        httpClient = HttpConnectionUtil.getClient();
+        HttpConnectionUtil httpConnectionUtil = new HttpConnectionUtil();
+        HttpClient client = httpConnectionUtil.getClient();
     }
 
     /**

@@ -13,6 +13,7 @@ import java.util.List;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.util.EntityUtils;
@@ -38,7 +39,9 @@ public class RTMPTSClientConnector extends RTMPTClientConnector {
     private static final Logger log = LoggerFactory.getLogger(RTMPTSClientConnector.class);
 
     {
-        httpClient = HttpConnectionUtil.getSecureClient();
+
+        HttpConnectionUtil httpConnectionUtil = new HttpConnectionUtil();
+        HttpClient client = httpConnectionUtil.getClient();
     }
 
     /**

@@ -31,20 +31,17 @@ import org.slf4j.LoggerFactory;
  */
 public class HttpConnectionUtil {
 
-    private static Logger log = LoggerFactory.getLogger(HttpConnectionUtil.class);
+    private final Logger log = LoggerFactory.getLogger(HttpConnectionUtil.class);
 
-    private static final String USER_AGENT = "Mozilla/4.0 (compatible; Red5 Server)";
+    private final String USER_AGENT = "Mozilla/4.0 (compatible; Red5 Server)";
 
-    private static PoolingHttpClientConnectionManager connectionManager;
+    private final PoolingHttpClientConnectionManager connectionManager;
 
-    private static int connectionTimeout = 7000;
+    private int connectionTimeout = 7000;
 
-    static {
-        // Create an HttpClient with the PoolingHttpClientConnectionManager.
-        // This connection manager must be used if more than one thread will
-        // be using the HttpClient.
-        connectionManager = new PoolingHttpClientConnectionManager();
-        connectionManager.setMaxTotal(40);
+    public HttpConnectionUtil() {
+        this.connectionManager = new PoolingHttpClientConnectionManager();
+        this.connectionManager.setMaxTotal(40);
     }
 
     /**
@@ -52,7 +49,7 @@ public class HttpConnectionUtil {
      *
      * @return client
      */
-    public static final HttpClient getClient() {
+    public HttpClient getClient() {
         return getClient(connectionTimeout);
     }
 
@@ -63,7 +60,7 @@ public class HttpConnectionUtil {
      *            - socket timeout to set
      * @return client
      */
-    public static final HttpClient getClient(int timeout) {
+    public HttpClient getClient(int timeout) {
         HttpClientBuilder client = HttpClientBuilder.create();
         // set the connection manager
         client.setConnectionManager(connectionManager);
@@ -89,7 +86,7 @@ public class HttpConnectionUtil {
      *
      * @return client
      */
-    public static final HttpClient getSecureClient() {
+    public HttpClient getSecureClient() {
         HttpClientBuilder client = HttpClientBuilder.create();
         // set the ssl verifier to accept all
         client.setSSLHostnameVerifier(new NoopHostnameVerifier());
@@ -117,7 +114,7 @@ public class HttpConnectionUtil {
      * @throws org.apache.http.ParseException
      *             on parse error
      */
-    public static void handleError(HttpResponse response) throws ParseException, IOException {
+    public void handleError(HttpResponse response) throws ParseException, IOException {
         log.debug("{}", response.getStatusLine().toString());
         HttpEntity entity = response.getEntity();
         if (entity != null) {
@@ -141,7 +138,7 @@ public class HttpConnectionUtil {
      *            the connectionTimeout to set
      */
     public void setConnectionTimeout(int connectionTimeout) {
-        HttpConnectionUtil.connectionTimeout = connectionTimeout;
+        this.connectionTimeout = connectionTimeout;
     }
 
 }
