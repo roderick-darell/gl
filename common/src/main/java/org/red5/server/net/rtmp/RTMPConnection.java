@@ -85,7 +85,6 @@ import org.red5.server.stream.AbstractClientStream;
 import org.red5.server.stream.ClientBroadcastStream;
 import org.red5.server.stream.OutputStream;
 import org.red5.server.stream.PlaylistSubscriberStream;
-import org.red5.server.stream.SingleItemSubscriberStream;
 import org.red5.server.stream.StreamService;
 import org.red5.server.util.ScopeUtils;
 import org.springframework.core.task.TaskRejectedException;
@@ -923,12 +922,12 @@ public abstract class RTMPConnection extends BaseConnection implements IStreamCa
     public ISingleItemSubscriberStream newSingleItemSubscriberStream(Number streamId) {
         if (isValidStreamId(streamId)) {
             // get SingleItemSubscriberStream defined as a prototype in red5-common.xml
-            SingleItemSubscriberStream siss = (SingleItemSubscriberStream) scope.getContext().getBean("singleItemSubscriberStream");
+            PlaylistSubscriberStream siss = (PlaylistSubscriberStream) scope.getContext().getBean("singleItemSubscriberStream");
             customizeStream(streamId, siss);
             if (!registerStream(siss)) {
                 siss = null;
             }
-            return siss;
+            return (ISingleItemSubscriberStream) siss;
         }
         return null;
     }

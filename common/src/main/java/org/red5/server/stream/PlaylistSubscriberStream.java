@@ -986,4 +986,20 @@ public class PlaylistSubscriberStream extends AbstractClientStream implements IP
         }
 
     }
+
+    public void setPlayItem(IPlayItem item) {
+        stop();
+        items.clear();
+        if (item != null) {
+            items.add(new PlayItemEntry(item));
+            currentItemIndex = 0;
+        } else {
+            currentItemIndex = -1;
+        }
+    }
+
+    public boolean isSingleItemMode() {
+        return items.size() == 1;
+    }
+
 }
