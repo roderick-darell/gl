@@ -54,6 +54,8 @@ import org.red5.server.stream.PlaybackDecisionResolver;
 public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnectionListener {
     private final PlaybackNotifier notifier;
 
+    private final ClientBufferMonitor clientBufferMonitor;
+
     private final PlaybackJobController playbackJobController;
 
     private PlaybackDecisionResolver playbackDecisionResolver;
@@ -250,14 +252,11 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         this.playbackJobController = new PlaybackJobController(this);
         this.playbackControlSender = new PlaybackControlSender(this);
         this.playbackDecisionResolver = new PlaybackDecisionResolver();
+        this.clientBufferMonitor = new ClientBufferMonitor(this);
     }
 
     void pushMessageInternal(AbstractMessage message) {
         doPushMessage(message);
-    }
-
-    ISubscriberStream getSubscriberStreamInternal() {
-        return subscriberStream;
     }
 
     ISchedulingService getSchedulingServiceInternal() {
@@ -335,14 +334,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
 
     void pushStatusInternal(Status status) {
         doPushMessage(status);
-    }
-
-    IPlayItem getCurrentItemInternal() {
-        return currentItem.get();
-    }
-
-    int getLastMessageTsInternal() {
-        return lastMessageTs;
     }
 
     /**
@@ -1034,84 +1025,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     }
 
     /**
-     * Check if it's okay to send the client more data. This takes the configured bandwidth as well as the requested client buffer into
-     * account.
-     *
-     * @param message
-     * @return true if it is ok to send more, false otherwise
-     */
-    private boolean okayToSendMessage(IRTMPEvent message) {
-        if (message instanceof IStreamData) {
-            final long now = System.currentTimeMillis();
-            // check client buffer size
-            if (isClientBufferFull(now)) {
-                return false;
-            }
-            // get pending message count
-            long pending = pendingMessages();
-            if (bufferCheckInterval > 0 && now >= nextCheckBufferUnderrun) {
-                if (pending > underrunTrigger) {
-                    // client is playing behind speed, notify him
-                    notifier.sendInsufficientBandwidthStatus(currentItem.get());
-                }
-                nextCheckBufferUnderrun = now + bufferCheckInterval;
-            }
-            // check for under run
-            // too many messages already queued on the connection
-            return pending <= underrunTrigger;
-        } else {
-            String itemName = "Undefined";
-            // if current item exists get the name to help debug this issue
-            if (currentItem.get() != null) {
-                itemName = currentItem.get().getName();
-            }
-            Object[] errorItems = new Object[] { message.getClass(), message.getDataType(), itemName };
-            throw new RuntimeException(String.format("Expected IStreamData but got %s (type %s) for %s", errorItems));
-        }
-    }
-
-    /**
-     * Estimate client buffer fill.
-     *
-     * @param now
-     *            The current timestamp being used.
-     * @return True if it appears that the client buffer is full, otherwise false.
-     */
-    private boolean isClientBufferFull(final long now) {
-        // check client buffer length when we've already sent some messages
-        if (lastMessageTs > 0) {
-            // duration the stream is playing / playback duration
-            final long delta = now - playbackStart;
-            // buffer size as requested by the client
-            final long buffer = subscriberStream.getClientBufferDuration();
-            // expected amount of data present in client buffer
-            final long buffered = lastMessageTs - delta;
-            log.trace("isClientBufferFull: timestamp {} delta {} buffered {} buffer duration {}", new Object[] { lastMessageTs, delta, buffered, buffer });
-            // fix for SN-122, this sends double the size of the client buffer
-            if (buffer > 0 && buffered > (buffer * 2)) {
-                // client is likely to have enough data in the buffer
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isClientBufferEmpty() {
-        // check client buffer length when we've already sent some messages
-        if (lastMessageTs >= 0) {
-            // duration the stream is playing / playback duration
-            final long delta = System.currentTimeMillis() - playbackStart;
-            // expected amount of data present in client buffer
-            final long buffered = lastMessageTs - delta;
-            log.trace("isClientBufferEmpty: timestamp {} delta {} buffered {}", new Object[] { lastMessageTs, delta, buffered });
-            if (buffered < 0) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Sends a status message.
      *
      * @param status
@@ -1632,15 +1545,6 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     }
 
     /**
-     * Get number of pending messages to be sent
-     *
-     * @return Number of pending messages
-     */
-    private long pendingMessages() {
-        return subscriberStream.getConnection().getPendingMessages();
-    }
-
-    /**
      * <p>isPullMode.</p>
      *
      * @return a boolean
@@ -1780,6 +1684,10 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
             return false;
         }
         return true;
+    }
+
+    long getPlaybackStartInternal() {
+        return playbackStart;
     }
 
     /**
@@ -1956,7 +1864,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
         if (isPlaybackActive()) {
             if (pendingMessage != null) {
                 IRTMPEvent body = pendingMessage.getBody();
-                if (okayToSendMessage(body)) {
+                if (clientBufferMonitor.okayToSendMessage(body)) {
                     sendMessage(pendingMessage);
                     releasePendingMessage();
                 } else {
@@ -1989,7 +1897,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
                 IRTMPEvent body = rtmpMessage.getBody();
                 body.setTimestamp(body.getTimestamp() + timestampOffset);
 
-                if (!okayToSendMessage(body)) {
+                if (!clientBufferMonitor.okayToSendMessage(body)) {
                     pendingMessage = rtmpMessage;
                     playbackJobController.ensurePullAndPushRunning();
                     break;
@@ -2064,7 +1972,7 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
     private class DeferredStopRunnable implements IScheduledJob {
 
         public void execute(ISchedulingService service) {
-            if (isClientBufferEmpty()) {
+            if (clientBufferMonitor.isClientBufferEmpty()) {
                 log.trace("Buffer is empty, stop will proceed");
                 stop();
             }
@@ -2090,6 +1998,42 @@ public final class PlayEngine implements IFilter, IPushableConsumer, IPipeConnec
      */
     public void setMaxSequentialPendingVideoFrames(int maxSequentialPendingVideoFrames) {
         this.maxSequentialPendingVideoFrames = maxSequentialPendingVideoFrames;
+    }
+
+    int getLastMessageTsInternal() {
+        return lastMessageTs;
+    }
+
+    ISubscriberStream getSubscriberStreamInternal() {
+        return subscriberStream;
+    }
+
+    int getBufferCheckIntervalInternal() {
+        return bufferCheckInterval;
+    }
+
+    int getUnderrunTriggerInternal() {
+        return underrunTrigger;
+    }
+
+    long getNextCheckBufferUnderrunInternal() {
+        return nextCheckBufferUnderrun;
+    }
+
+    void setNextCheckBufferUnderrunInternal(long value) {
+        this.nextCheckBufferUnderrun = value;
+    }
+
+    IPlayItem getCurrentItemInternal() {
+        return currentItem.get();
+    }
+
+    long getPendingMessagesInternal() {
+        return subscriberStream.getConnection().getPendingMessages();
+    }
+
+    PlaybackNotifier getPlaybackNotifierInternal() {
+        return notifier;
     }
 
 }
