@@ -18,7 +18,7 @@ import org.red5.server.net.rtmp.codec.RTMPProtocolDecoder;
 import org.red5.server.net.rtmp.codec.RTMPProtocolEncoder;
 import org.red5.server.net.rtmp.message.Constants;
 import org.red5.server.net.rtmp.message.Packet;
-import org.red5.server.net.rtmpt.codec.RTMPTCodecFactory;
+import org.red5.server.net.rtmpt.RTMPTCodecFactory;
 
 /**
  * RTMPT client object

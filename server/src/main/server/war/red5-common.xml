@@ -81,7 +81,7 @@
     </bean>
     <!-- RTMPT codec factory -->
 
-    <bean id="rtmptCodecFactory" autowire="byType" class="org.red5.server.net.rtmpt.codec.RTMPTCodecFactory" init-method="init">
+    <bean id="rtmptCodecFactory" autowire="byType" class="org.red5.server.net.rtmpt.RTMPTCodecFactory" init-method="init">
 
         <property name="serializer">
 

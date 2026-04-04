@@ -21,8 +21,8 @@ import org.red5.server.net.rtmp.codec.RTMP;
 import org.red5.server.net.rtmp.codec.RTMPProtocolDecoder;
 import org.red5.server.net.rtmp.codec.RTMPProtocolEncoder;
 import org.red5.server.net.rtmp.message.Packet;
-import org.red5.server.net.rtmpt.codec.RTMPTProtocolDecoder;
-import org.red5.server.net.rtmpt.codec.RTMPTProtocolEncoder;
+import org.red5.server.net.rtmpt.RTMPTProtocolDecoder;
+import org.red5.server.net.rtmpt.RTMPTProtocolEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

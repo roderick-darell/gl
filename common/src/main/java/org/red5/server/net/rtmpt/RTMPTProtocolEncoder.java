@@ -5,7 +5,7 @@
  * either express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
-package org.red5.server.net.rtmpt.codec;
+package org.red5.server.net.rtmpt;
 
 import org.apache.mina.core.buffer.IoBuffer;
 import org.red5.server.api.service.IServiceCall;

@@ -8,7 +8,6 @@
 package org.red5.server.net.rtmpt;
 
 import org.red5.server.net.rtmp.RTMPHandler;
-import org.red5.server.net.rtmpt.codec.RTMPTCodecFactory;
 
 /**
  * Handler for RTMPT messages.
